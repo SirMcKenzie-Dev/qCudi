@@ -62,16 +62,10 @@ class ScraperController:
         Returns:
             Optional[Type[BaseScraper]]: Appropriate scraper class or None if not supported
         """
-        # Check if need to remove the above function header
-        def get_scraper_for_url(self, url: str, website_type: str = None) -> Optional[Type[BaseScraper]]:
-            if website_type:
-                domain = website_type.lower() + ".com"
-                return self.SCRAPER_MAP.get(domain)
-
-            for domain, scraper_class in self.SCRAPER_MAP.items():
-                if domain in url.lower():
-                    return scraper_class
-            return None
+        for domain, scraper_class in self.SCRAPER_MAP.items():
+            if domain in url.lower():
+                return scraper_class
+        return None
 
     async def check_disk_space(self, required_mb=500):
         """

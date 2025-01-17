@@ -2,10 +2,12 @@
 from abc import ABC, abstractmethod
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import WebDriverException, TimeoutException, NoSuchElementException
 import asyncio
 import logging
+import os
+import httpx
 import random  # Used in rate limiting
 from typing import Callable, Optional, Tuple, List
 
@@ -15,16 +17,10 @@ ProgressCallback = Callable[[int, str, int, Optional[int]], None]
 
 class BaseScraper(ABC):
     def __init__(self, driver: Optional[webdriver.Chrome] = None,
-                 progress_callback: Optional[Callable] = None) -> None:
-        """
-        Initialize base scraper.
-
-        Args:
-            driver: Selenium WebDriver instance
-            progress_callback: Function to report progress
-        """
+                 progress_callback: Optional[ProgressCallback] = None) -> None:
         self.driver = driver
         self.progress_callback = progress_callback
+        self.total_thumbnails = 0  # Add this to track total items
 
     async def authenticate(self, credentials: dict) -> bool:
         """Handle site-specific authentication"""
@@ -68,3 +64,26 @@ class BaseScraper(ABC):
             if new_height == last_height:
                 break
             last_height = new_height
+
+    async def download_image(self, url: str, filename: str, download_dir: str, max_retries: int = 3) -> bool:
+        """
+        Common download method for all scrapers
+        """
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.get(url)
+                    response.raise_for_status()
+
+                    file_path = os.path.join(download_dir, filename)
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+
+                    logging.info(f"Downloaded: {file_path}")
+                    return True
+
+            except Exception as e:
+                logging.error(f"Attempt {attempt + 1} failed for {url}: {e}")
+                if attempt == max_retries - 1:
+                    return False
+                await asyncio.sleep(2 ** attempt)

@@ -6,6 +6,9 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from scrapers import ScraperController
 from urllib.parse import urlparse
 from config.config import ScraperConfig
+from selenium.common.exceptions import WebDriverException
+from config.config import ScraperConfig
+from scrapers import ScraperController
 from typing import Optional
 import asyncio
 import sys
@@ -76,8 +79,10 @@ class ScraperThread(QThread):
             self.error_signal.emit(f"Invalid URL {str(e)}")
         except RuntimeError as e:  # Disk space error
             self.error_signal.emit(f"System error: {str(e)}")
-        except Exception as e:
+        except WebDriverException as e:
             self.error_signal.emit(f"Scraping error: {str(e)}")
+        except Exception as e:  # Other error
+            self.error_signal.emit(f"Unknown error: {str(e)}")
         finally:
             self.status_signal.emit("Process completed")
 
@@ -122,7 +127,7 @@ class WebScraperApp(QMainWindow):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_operation)
         self.cancel_button.setEnabled(False)
-        grid_layout.addWidget(self.cancel_button, 4, 2)  # Row 4 | Col 2
+        grid_layout.addWidget(self.cancel_button, 4, 0, 1, 2)  # Row 4 | Col 0 | Spans 1 row | Spans 2 columns
 
         # Controls (Row 4 Col 0)
         self.dropdown = QComboBox()
@@ -130,18 +135,18 @@ class WebScraperApp(QMainWindow):
         # self.dropdown.addItem("Fapello")
         # self.dropdown.addItem("Instagram")
         # self.dropdown.addItem("Threads")
-        grid_layout.addWidget(self.dropdown, 4, 0)  # Row 4 | Col 0
+        grid_layout.addWidget(self.dropdown, 5, 0)  # Row 4 | Col 0
 
         # Controls (Row 4 Col 1)
-        self.submit_button = QPushButton("Start Download")
+        self.submit_button = QPushButton("Start")
         self.submit_button.clicked.connect(self.submit_url)
         self.submit_button.setFixedWidth(100)
-        grid_layout.addWidget(self.submit_button, 4, 1)  # Row 4 | Col 1
+        grid_layout.addWidget(self.submit_button, 5, 1)  # Row 4 | Col 1
 
         # Log Text Area (Row 6)
         self.log_text_area = QTextEdit()
         self.log_text_area.setReadOnly(True)
-        grid_layout.addWidget(self.log_text_area, 6, 0, 1, 3)  # Row 6 | Col 0 | Spans 1 row | Spans 3 columns
+        grid_layout.addWidget(self.log_text_area, 6, 0, 1, 2)  # Row 6 | Col 0 | Spans 1 row | Spans 2 columns
 
     def submit_url(self):
         """Modified to handle multiple website types"""
