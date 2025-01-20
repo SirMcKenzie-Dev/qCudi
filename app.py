@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGridLayout, QWidget, QPushButton, QLabel, QLineEdit, QProgressBar, QMessageBox, QTextEdit, QComboBox
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtGui import QIcon
 from scrapers import ScraperController
 from urllib.parse import urlparse
 from config.config import ScraperConfig
@@ -29,7 +30,6 @@ class ScraperThread(QThread):
         self.website_type = website_type
         self.controller = None  # Will hold ScraperController instance
         self.is_cancelled = False
-        # self.total_thumbnails = 0
 
     def progress_callback(self, current, url, status_code, total=None):
         try:
@@ -132,9 +132,6 @@ class WebScraperApp(QMainWindow):
         # Controls (Row 4 Col 0)
         self.dropdown = QComboBox()
         self.dropdown.addItems(["Fapello", "Instagram", "Threads"])
-        # self.dropdown.addItem("Fapello")
-        # self.dropdown.addItem("Instagram")
-        # self.dropdown.addItem("Threads")
         grid_layout.addWidget(self.dropdown, 5, 0)  # Row 4 | Col 0
 
         # Controls (Row 4 Col 1)
@@ -167,10 +164,10 @@ class WebScraperApp(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Invalid URL format!")
             return
 
-        if "Instagram" in website_type:
-            QMessageBox.information(self, "Feature Not Available",
-                                    "Instagram scraping is coming soon!")
-            return
+        # if "Instagram" in website_type:
+        #     QMessageBox.information(self, "Feature Not Available",
+        #                             "Instagram scraping is coming soon!")
+        #     return
 
         # Reset UI elements
         self.progress_bar.setValue(0)
@@ -198,7 +195,7 @@ class WebScraperApp(QMainWindow):
     def initialize_progress(self, total):
         self.total_thumbnails = total
         self.status_label.setText(f"Found {total} items to download")
-        self.log_text_area.append(f"Starting download of {total} items...")
+        self.log_text_area.append(f"Starting download of item {total}")
 
     def update_progress(self, current_progress, total_progress, url, status):
         try:
@@ -235,6 +232,11 @@ class WebScraperApp(QMainWindow):
 
 if __name__ == "__main__":
     myapp = QApplication([])
+    icon_path = os.path.join(os.path.dirname(__file__), "assets", "app_icon.ico")
+    if os.path.exists(icon_path):
+        myapp.setWindowIcon(QIcon(icon_path))
+    else:
+        print(f"Warning: Icon file not found: {icon_path}")
     window = WebScraperApp()
     window.show()
     myapp.exec_()

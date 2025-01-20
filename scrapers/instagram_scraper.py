@@ -1,70 +1,170 @@
-# scraper_project/scrapers/instagram_scraper.py
-import os
+import os  # noqa
+import time  # noqa
+import httpx  # noqa
 import logging
+import asyncio
+from typing import Tuple, List, Optional  # noqa
+from selenium import webdriver  # noqa
 from urllib.parse import urlparse
-from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys  # noqa
+from scrapers.base_scraper import BaseScraper
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from .base_scraper import BaseScraper
-from selenium.common.exceptions import TimeoutException
-from typing import List, Tuple, Optional
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 
 class InstagramScraper(BaseScraper):
+    """
+    Enhanced Instagram scraper with improved error handling and consistency
+    with the base scraper interface.
+    """
     def __init__(self, driver=None, progress_callback=None):
         super().__init__(driver, progress_callback)
         self.main_window = None
         self.download_log = []
+        self.is_authenticated = False
 
-    async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:
+    async def validate_url(self, url: str) -> tuple[bool, str]:
         """
-        Process Instagram media elements using similar logic to FapelloScraper
+        Validates if the URL is a valid Instagram URL.
+
+        Args:
+            url (str): URL to validate
+
+        Returns:
+            tuple[bool, str]: (is_valid, error_message)
         """
         try:
-            # Use similar logic to FapelloScraper but with Instagram-specific selectors
-            parent = element.find_element(By.XPATH, "./ancestor::a")
-            intermediate_url = parent.get_attribute('href')
+            result = urlparse(url)
+            if not all([result.scheme, result.netloc]):
+                return False, "Invalid URL format"
 
-            if not intermediate_url:
-                return False, "No link found"
+            if result.scheme not in ['http', 'https']:
+                return False, "URL must use HTTP or HTTPS"
 
-            self.driver.execute_script(f"window.open('{intermediate_url}', '_blank');")
-            self.driver.switch_to.window(self.driver.window_handles[-1])
+            if 'instagram.com' not in result.netloc.lower():
+                return False, "Not a valid Instagram domain"
 
-            # Wait for Instagram image to load
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div._aagv img"))
-            )
+            # Validate path structure
+            path_parts = result.path.strip('/').split('/')
+            valid_paths = ['p', 'stories', 'reel', '']  # '' for profile URLs
 
-            # Get full resolution image
-            full_res_element = self.driver.find_element(By.CSS_SELECTOR, "div._aagv img")
-            full_res_url = full_res_element.get_attribute('src')
+            if path_parts[0] not in valid_paths:
+                return False, "Invalid Instagram URL path"
 
-            if not full_res_url:
-                self.driver.close()
-                self.driver.switch_to.window(self.main_window)
-                return False, "No source URL found"
-
-            # Download image using same method as FapelloScraper
-            filename = f"instagram_{index + 1}{os.path.splitext(full_res_url.split('?')[0])[1]}"
-            success = await self.download_image(full_res_url, filename, download_dir)
-
-            self.driver.close()
-            self.driver.switch_to.window(self.main_window)
-
-            if success:
-                if self.progress_callback:
-                    self.progress_callback(index + 1, full_res_url, 200)
-                return True, full_res_url
-            else:
-                if self.progress_callback:
-                    self.progress_callback(index + 1, full_res_url, 500)
-                return False, "Download failed"
+            return True, "URL is valid"
 
         except Exception as e:
-            logging.error(f"Error processing Instagram media {index}: {e}")
-            if len(self.driver.window_handles) > 1:
-                self.driver.close()
-                self.driver.switch_to.window(self.main_window)
+            return False, f"URL validation error: {str(e)}"
+
+    async def get_media_elements(self) -> list:
+        """Get all media elements from the current page"""
+        await self.scroll_to_load()
+
+        elements = self.driver.find_elements(
+            By.CSS_SELECTOR,
+            'article img[style*="object-fit: cover"]'
+        )
+
+        self.total_thumbnails = len(elements)
+        if self.progress_callback:
+            self.progress_callback(0, "", 0, self.total_thumbnails)
+
+        return elements
+
+    async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:
+        """Process a single Instagram media element"""
+        try:
+            if not self.main_window:
+                self.main_window = self.driver.current_window_handle
+
+            # Click the post to open it in a modal
+            element.click()
+            await asyncio.sleep(1)
+
+            # Wait for modal to appear
+            modal = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'div[role="dialog"]'))
+            )
+
+            # Check for carousel
+            carousel_buttons = modal.find_elements(By.CSS_SELECTOR, 'button[aria-label="Next"]')
+            urls = []
+
+            if carousel_buttons:
+                # Handle carousel post
+                while True:
+                    try:
+                        img = WebDriverWait(modal, 5).until(
+                            EC.presence_of_element_located((
+                                By.CSS_SELECTOR,
+                                'img[style*="object-fit: contain"]'
+                            ))
+                        )
+                        urls.append(img.get_attribute('src'))
+
+                        next_button = modal.find_element(By.CSS_SELECTOR, 'button[aria-label="Next"]')
+                        next_button.click()
+                        await asyncio.sleep(0.5)
+                    except (TimeoutException, NoSuchElementException):
+                        break
+            else:
+                # Single image/video post
+                try:
+                    img = WebDriverWait(modal, 5).until(
+                        EC.presence_of_element_located((
+                            By.CSS_SELECTOR,
+                            'img[style*="object-fit: contain"]'
+                        ))
+                    )
+                    urls.append(img.get_attribute('src'))
+                except TimeoutException:
+                    # Check for video
+                    try:
+                        video = modal.find_element(By.TAG_NAME, 'video')
+                        urls.append(video.get_attribute('src'))
+                    except NoSuchElementException:
+                        pass
+
+            # Close modal
+            close_button = modal.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]')
+            close_button.click()
+            await asyncio.sleep(0.5)
+
+            # Download all found media
+            success = False
+            for idx, url in enumerate(urls):
+                if url:
+                    is_video = url.endswith('.mp4')
+                    ext = '.mp4' if is_video else '.jpg'
+                    filename = f"instagram_{index}_{idx}{ext}"
+                    success = await self.download_image(url, filename, download_dir)
+
+                    if success and self.progress_callback:
+                        self.progress_callback(index + 1, url, 200, self.total_thumbnails)
+
+            return success, urls[0] if urls else ""
+
+        except Exception as e:
+            logging.error(f"Error processing media {index}: {e}")
+            if self.progress_callback:
+                self.progress_callback(index + 1, "", 500, self.total_thumbnails)
             return False, str(e)
+
+    async def scroll_to_load(self):
+        """Scroll the page to load more content"""
+        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        scrolls = 0
+        max_scrolls = 10  # Prevent infinite scrolling
+
+        while scrolls < max_scrolls:
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            await asyncio.sleep(2)
+
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+
+            last_height = new_height
+            scrolls += 1
