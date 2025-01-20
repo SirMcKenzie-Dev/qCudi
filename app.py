@@ -2,18 +2,17 @@
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGridLayout, QWidget, QPushButton, QLabel, QLineEdit, QProgressBar, QMessageBox, QTextEdit, QComboBox
 )
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
 from scrapers import ScraperController
 from urllib.parse import urlparse
-from config.config import ScraperConfig
 from selenium.common.exceptions import WebDriverException
-from config.config import ScraperConfig
-from scrapers import ScraperController
-from typing import Optional
 import asyncio
-import sys
 import os
+from scrapers.instagram_scraper import InstagramScraper
+# from config.config import ScraperConfig
+# from typing import Optional
+# import sys
 
 
 class ScraperThread(QThread):
@@ -30,6 +29,7 @@ class ScraperThread(QThread):
         self.website_type = website_type
         self.controller = None  # Will hold ScraperController instance
         self.is_cancelled = False
+        self.insta_header = InstagramScraper
 
     def progress_callback(self, current, url, status_code, total=None):
         try:
@@ -216,12 +216,17 @@ class WebScraperApp(QMainWindow):
         self.status_label.setText("Download complete!")
         self.submit_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
-        QMessageBox.information(
-            self,
-            "Success",
-            f"Downloaded {successful_downloads} out of {total_thumbnails} items!\n"
-            f"Success rate: {(successful_downloads / total_thumbnails) * 100:.0f}%"
-        )
+        try:
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Downloaded {successful_downloads} out of {total_thumbnails} items!\n"
+                f"Success rate: {(successful_downloads / total_thumbnails) * 100:.0f}%"
+            )
+        except ZeroDivisionError as e:
+            self.display_error(f"Error calculating success rate: Division by zero | {str(e)}")
+        except Exception as e:
+            self.display_error(f"Error displaying success message: {str(e)}")
 
     def display_error(self, error_message):
         self.status_label.setText("Error occurred!")
