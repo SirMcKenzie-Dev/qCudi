@@ -6,23 +6,18 @@ Handles initialization, authentication, and coordinates the scraping process.
 
 import os
 import time
-import shutil
-import logging
-import asyncio
 import httpx
-from typing import Dict, Type, Optional
-from selenium.common.exceptions import WebDriverException
+import shutil
+import asyncio
+import logging
 from .base_scraper import BaseScraper
-from .fapello_scraper import FapelloScraper
-from .instagram_scraper import InstagramScraper
 from config.config import ScraperConfig
+from typing import Dict, Type, Optional
+from .fapello_scraper import FapelloScraper
 from utils.browser_setup import BrowserSetup
+from .instagram_scraper import InstagramScraper
+from selenium.common.exceptions import WebDriverException
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 

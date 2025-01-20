@@ -1,15 +1,12 @@
 # scraper_project/scrapers/base_scraper.py
-from abc import ABC, abstractmethod
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options  # noqa
-from selenium.webdriver.common.by import By # noqa
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException # noqa
-import asyncio
-import logging
 import os
 import httpx
 import random  # Used for rate limiting
-from typing import Callable, Optional, Tuple, List # noqa
+import asyncio
+import logging
+from selenium import webdriver
+from abc import ABC, abstractmethod
+from typing import Callable, Optional
 
 
 ProgressCallback = Callable[[int, str, int, Optional[int]], None]

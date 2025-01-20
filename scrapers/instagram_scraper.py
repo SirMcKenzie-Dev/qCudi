@@ -7,22 +7,21 @@ while respecting rate limits and handling various media types (images, videos, c
 Version: 2024.01.20
 """
 
-import logging
-import asyncio
 import re
 import random
+import asyncio
+import logging
 from typing import Tuple, List
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from .base_scraper import BaseScraper
 from .instagram_dom_map import InstagramDOMMap
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -200,7 +199,7 @@ class InstagramScraper(BaseScraper):
             logger.debug(f"Current URL: {current_url}")
 
             # Log the page source for debugging
-            logger.debug("Page source preview: %s", self.driver.page_source[:500])
+            # logger.debug("Page source preview: %s", self.driver.page_source[:500])
 
             # Try different selector strategies
             selectors_to_try = [

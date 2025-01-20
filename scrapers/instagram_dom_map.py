@@ -1,4 +1,4 @@
-# instagram_dom_map.py
+# scraper_project/scrapers/instagram_dom_map.py
 """
 Instagram DOM mapping module providing centralized selectors for web scraping.
 Includes comprehensive mapping of Instagram's web interface elements and helper methods

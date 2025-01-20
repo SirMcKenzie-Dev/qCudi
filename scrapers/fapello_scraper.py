@@ -1,16 +1,13 @@
 # scraper_project/scrapers/fapello_scraper.py
 import os
 import httpx
-import logging
 import asyncio
-# from typing import Tuple, List
-# from selenium import webdriver
+import logging
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
 from scrapers.base_scraper import BaseScraper
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-# from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 
 class FapelloScraper(BaseScraper):

@@ -1,22 +1,22 @@
 # scraper_project/app.py
+import os
+import asyncio
+from PyQt5.QtGui import QIcon
+from urllib.parse import urlparse
+from scrapers import ScraperController
+from PyQt5.QtCore import QThread, pyqtSignal
+from utils.logging_config import configure_logging
+from scrapers.instagram_scraper import InstagramScraper
+from selenium.common.exceptions import WebDriverException
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QGridLayout, QWidget, QPushButton, QLabel, QLineEdit, QProgressBar, QMessageBox, QTextEdit, QComboBox
 )
-from PyQt5.QtCore import QThread, pyqtSignal
-from PyQt5.QtGui import QIcon
-from scrapers import ScraperController
-from urllib.parse import urlparse
-from selenium.common.exceptions import WebDriverException
-import asyncio
-import os
-from scrapers.instagram_scraper import InstagramScraper
-# from config.config import ScraperConfig
-# from typing import Optional
-# import sys
+
+configure_logging('INFO')
 
 
 class ScraperThread(QThread):
-    """Modified ScraperThread to work with new controller"""
+    """Modified ScraperThread with improved progress tracking"""
     progress_signal = pyqtSignal(int, int, str, str)  # current, total, url, status
     completed_signal = pyqtSignal(int, int)  # successful, total
     error_signal = pyqtSignal(str)
@@ -27,7 +27,7 @@ class ScraperThread(QThread):
         super().__init__()
         self.url = url
         self.website_type = website_type
-        self.controller = None  # Will hold ScraperController instance
+        self.controller = None
         self.is_cancelled = False
         self.insta_header = InstagramScraper
 
@@ -36,11 +36,11 @@ class ScraperThread(QThread):
             if total is not None:
                 self.total_thumbnails = total
                 self.total_signal.emit(total)
-                self.status_signal.emit(f"Found {total} media items to process")
+                self.status_signal.emit(f"Found {total} media items")
             else:
                 status_text = "OK" if status_code == 200 else f"Error ({status_code})"
                 self.progress_signal.emit(current, self.total_thumbnails, url, status_text)
-                self.status_signal.emit(f"Processing item {current} of {self.total_thumbnails}")
+                self.status_signal.emit(f"Processing {current} of {self.total_thumbnails}")
         except Exception as e:
             self.error_signal.emit(f"Progress callback error: {str(e)}")
 
@@ -66,14 +66,8 @@ class ScraperThread(QThread):
 
             loop.close()
 
-            # if self.is_cancelled:
-            #     self.status_signal.emit("Operation cancelled")
-            #     return
-
             if not self.is_cancelled:
                 self.completed_signal.emit(successful_downloads, total_items)
-
-            # self.completed_signal.emit(successful_downloads, total_items)
 
         except ValueError as e:  # URL validation error
             self.error_signal.emit(f"Invalid URL {str(e)}")
@@ -164,11 +158,6 @@ class WebScraperApp(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Invalid URL format!")
             return
 
-        # if "Instagram" in website_type:
-        #     QMessageBox.information(self, "Feature Not Available",
-        #                             "Instagram scraping is coming soon!")
-        #     return
-
         # Reset UI elements
         self.progress_bar.setValue(0)
         self.status_label.setText("Initializing...")
@@ -193,16 +182,18 @@ class WebScraperApp(QMainWindow):
             self.status_label.setText("Cancelling...")
 
     def initialize_progress(self, total):
+        """Initialize progress tracking with total count"""
+        self.progress_bar.setValue(0)
         self.total_thumbnails = total
-        self.status_label.setText(f"Found {total} items to download")
-        self.log_text_area.append(f"Starting download of item {total}")
+        self.status_label.setText(f"Found {total} media items")
 
     def update_progress(self, current_progress, total_progress, url, status):
+        """Update progress with current/total count"""
         try:
             percentage = int((current_progress / total_progress) * 100)
             self.progress_bar.setValue(percentage)
-            self.log_text_area.append(f"Item {current_progress}/{total_progress}: {url} - Status: {status}")
-            # Ensure log scrolls to bottom
+            self.status_label.setText(f"Processing {current_progress} of {total_progress}")
+            self.log_text_area.append(f"Item {current_progress}/{total_progress}: {url} - {status}")
             self.log_text_area.verticalScrollBar().setValue(
                 self.log_text_area.verticalScrollBar().maximum()
             )
