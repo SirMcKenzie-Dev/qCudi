@@ -242,120 +242,190 @@ class InstagramScraper(BaseScraper):
             logger.error(f"Error in get_media_elements: {str(e)}", exc_info=True)
             return []
 
-    async def process_media_element(self, element, index: int, download_dir: str) -> Tuple[bool, str]:
-        """Simplified media processing focused on thumbnails"""
+    async def detect_media_type(self, element) -> tuple[str, str]:
+        """
+        Detects the type of Instagram media (single, carousel, reel).
+
+        Returns:
+            tuple[str, str]: (media_type, post_url)
+            media_type can be 'single', 'carousel', 'reel', or 'unknown'
+        """
         try:
-            # Try to get the image URL directly
-            src = element.get_attribute('src')
-            if not src:
-                logger.debug(f"No src attribute found for element {index}")
-                return False, "No source URL found"
+            # First find the post link from the thumbnail
+            post_link = element
+            if element.tag_name == 'img':
+                post_link = element.find_element(By.XPATH, './ancestor::a[@role="link"]')
 
-            logger.info(f"Found image URL for element {index}: {src}")
+            post_url = post_link.get_attribute('href')
 
-            # Download the thumbnail directly
-            filename = f"instagram_thumbnail_{index}.jpg"
-            success = await self.download_image(src, filename, download_dir)
+            # Check URL patterns
+            if '/reel/' in post_url:
+                return 'reel', post_url
 
-            if success:
-                logger.info(f"Successfully downloaded thumbnail {index}")
-                if self.progress_callback:
-                    self.progress_callback(index + 1, src, 200, self.total_thumbnails)
-            else:
-                logger.error(f"Failed to download thumbnail {index}")
+            # Open post in new tab to check type
+            self.driver.execute_script(f"window.open('{post_url}', '_blank');")
+            await asyncio.sleep(2)
 
-            return success, src
+            # Switch to new tab
+            new_window = self.driver.window_handles[-1]
+            self.driver.switch_to.window(new_window)
+
+            try:
+                # Check for carousel indicators
+                carousel_dots = self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    'div[role="menuitem"], button[aria-label="Next"]'
+                )
+
+                # Check for video indicators
+                video_elements = self.driver.find_elements(
+                    By.CSS_SELECTOR,
+                    'video[type="video/mp4"], div[role="button"][aria-label*="play"]'
+                )
+
+                media_type = 'single'
+                if carousel_dots:
+                    media_type = 'carousel'
+                elif video_elements:
+                    media_type = 'reel'
+
+                return media_type, post_url
+
+            finally:
+                # Close tab and switch back
+                self.driver.close()
+                self.driver.switch_to.window(self.driver.window_handles[0])
 
         except Exception as e:
-            logger.error(f"Error processing element {index}: {str(e)}", exc_info=True)
+            logger.error(f"Error detecting media type: {str(e)}")
+            return 'unknown', ''
+
+    async def process_carousel(self, post_url: str, index: int, download_dir: str) -> tuple[bool, list[str]]:
+        """
+        Process a carousel post and download all images.
+        """
+        try:
+            # Open post in new tab
+            self.driver.execute_script(f"window.open('{post_url}', '_blank');")
+            await asyncio.sleep(2)
+
+            new_window = self.driver.window_handles[-1]
+            self.driver.switch_to.window(new_window)
+
+            downloaded_urls = []
+            current_index = 0
+
+            while True:
+                try:
+                    # Wait for image to load
+                    img_element = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((
+                            By.CSS_SELECTOR,
+                            'div._aagv img[src*="instagram"]'
+                        ))
+                    )
+
+                    img_url = img_element.get_attribute('src')
+                    if img_url:
+                        filename = f"instagram_{index}_{current_index}.jpg"
+                        if await self.download_image(img_url, filename, download_dir):
+                            downloaded_urls.append(img_url)
+
+                    # Try to click next
+                    next_button = self.driver.find_element(
+                        By.CSS_SELECTOR,
+                        'button[aria-label="Next"]'
+                    )
+                    if not next_button.is_displayed():
+                        break
+
+                    next_button.click()
+                    await asyncio.sleep(1)
+                    current_index += 1
+
+                except Exception as e:
+                    logger.debug(f"Reached end of carousel or error: {str(e)}")
+                    break
+
+            return bool(downloaded_urls), downloaded_urls
+
+        except Exception as e:
+            logger.error(f"Error processing carousel: {str(e)}")
+            return False, []
+
+        finally:
+            self.driver.close()
+            self.driver.switch_to.window(self.driver.window_handles[0])
+
+    async def process_single_image(self, post_url: str, index: int, download_dir: str) -> tuple[bool, str]:
+        """
+        Process a single image post.
+        """
+        try:
+            self.driver.execute_script(f"window.open('{post_url}', '_blank');")
+            await asyncio.sleep(2)
+
+            new_window = self.driver.window_handles[-1]
+            self.driver.switch_to.window(new_window)
+
+            try:
+                img_element = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((
+                        By.CSS_SELECTOR,
+                        'div._aagv img[src*="instagram"]'
+                    ))
+                )
+
+                img_url = img_element.get_attribute('src')
+                if img_url:
+                    filename = f"instagram_{index}.jpg"
+                    success = await self.download_image(img_url, filename, download_dir)
+                    return success, img_url
+
+                return False, ''
+
+            finally:
+                self.driver.close()
+                self.driver.switch_to.window(self.driver.window_handles[0])
+
+        except Exception as e:
+            logger.error(f"Error processing single image: {str(e)}")
+            return False, ''
+
+    async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:
+        """
+        Enhanced media element processing with type detection.
+        """
+        try:
+            media_type, post_url = await self.detect_media_type(element)
+
+            if media_type == 'reel':
+                logger.info(f"Skipping reel: {post_url}")
+                if self.progress_callback:
+                    self.progress_callback(index + 1, post_url, 200, self.total_thumbnails)
+                return True, "Skipped reel"
+
+            elif media_type == 'carousel':
+                success, urls = await self.process_carousel(post_url, index, download_dir)
+                if success and self.progress_callback:
+                    self.progress_callback(index + 1, urls[0], 200, self.total_thumbnails)
+                return success, urls[0] if urls else ""
+
+            elif media_type == 'single':
+                success, url = await self.process_single_image(post_url, index, download_dir)
+                if success and self.progress_callback:
+                    self.progress_callback(index + 1, url, 200, self.total_thumbnails)
+                return success, url
+
+            else:
+                logger.warning(f"Unknown media type for post: {post_url}")
+                return False, "Unknown media type"
+
+        except Exception as e:
+            logger.error(f"Error processing media element {index}: {str(e)}")
             if self.progress_callback:
                 self.progress_callback(index + 1, "", 500, self.total_thumbnails)
             return False, str(e)
-
-        # """Process media elements with detailed logging"""
-        # try:
-        #     if not self.main_window:
-        #         self.main_window = self.driver.current_window_handle
-
-        #     # Get post link and log details
-        #     post_link = element
-        #     if element.tag_name == 'img':
-        #         logger.debug("Element is an img tag, finding parent link")
-        #         post_link = element.find_element(By.XPATH, './ancestor::a[@role="link"]')
-
-        #     # Log post details
-        #     post_url = post_link.get_attribute('href')
-        #     logger.info(f"Processing post {index + 1}: {post_url}")
-
-        #     # Log element attributes
-        #     element_attrs = {}
-        #     try:
-        #         element_attrs = {
-        #             'class': element.get_attribute('class'),
-        #             'src': element.get_attribute('src'),
-        #             'alt': element.get_attribute('alt')
-        #         }
-        #         logger.debug("Element attributes: %s", element_attrs)
-        #     except Exception:
-        #         logger.debug("Could not get all element attributes")
-
-        #     # Click and log
-        #     logger.debug("Clicking post link to open modal")
-        #     post_link.click()
-        #     await asyncio.sleep(self.rate_limit_delay)
-
-        #     # Wait for and log modal
-        #     logger.debug("Waiting for modal with selector: %s", self.dom.MODAL['dialog'])
-        #     modal = WebDriverWait(self.driver, 10).until(
-        #         EC.presence_of_element_located((
-        #             By.CSS_SELECTOR,
-        #             self.dom.MODAL['dialog']
-        #         ))
-        #     )
-        #     logger.debug("Modal found, proceeding to extract media")
-
-        #     # Extract and log media URLs
-        #     media_urls = await self._extract_media_urls(modal)
-        #     logger.info("Found %d media URLs in post", len(media_urls))
-        #     for idx, url in enumerate(media_urls):
-        #         logger.debug("Media URL %d: %s", idx + 1, url)
-
-        #     # Close modal
-        #     logger.debug("Closing modal")
-        #     close_button = modal.find_element(
-        #         By.CSS_SELECTOR,
-        #         self.dom.MODAL['close']
-        #     )
-        #     close_button.click()
-        #     await asyncio.sleep(self.rate_limit_delay)
-
-        #     # Download media with logging
-        #     success = False
-        #     for idx, url in enumerate(media_urls):
-        #         if url:
-        #             ext = '.mp4' if url.endswith('.mp4') else '.jpg'
-        #             filename = f"instagram_{index}_{idx}{ext}"
-        #             logger.info(f"Downloading media {idx + 1} from URL: {url}")
-        #             logger.debug(f"Saving as: {filename}")
-
-        #             success = await self.download_image(url, filename, download_dir)
-        #             logger.info(f"Download {'successful' if success else 'failed'}")
-
-        #             if success and self.progress_callback:
-        #                 self.progress_callback(
-        #                     index + 1,
-        #                     url,
-        #                     200,
-        #                     self.total_thumbnails
-        #                 )
-
-        #     return success, media_urls[0] if media_urls else ""
-
-        # except Exception as e:
-        #     logger.error(f"Error processing media {index}: {str(e)}", exc_info=True)
-        #     if self.progress_callback:
-        #         self.progress_callback(index + 1, "", 500, self.total_thumbnails)
-        #     return False, str(e)
 
     async def scroll_to_load(self):
         """Improved scroll with debug logging"""
