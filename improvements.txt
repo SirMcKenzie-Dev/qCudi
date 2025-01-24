@@ -5,3 +5,4 @@ Implement better logging that uses ("info", "debug", and "warning") to show diff
 
 Implement a method to do highlights
 Implement a method to do reels
+
