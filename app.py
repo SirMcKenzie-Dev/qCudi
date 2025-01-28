@@ -228,7 +228,7 @@ class WebScraperApp(QMainWindow):
 
 if __name__ == "__main__":
     myapp = QApplication([])
-    icon_path = os.path.join(os.path.dirname(__file__), "assets", "app_icon.ico")
+    icon_path = os.path.join(os.path.dirname(__file__), "assets", "app_icon.png")
     if os.path.exists(icon_path):
         myapp.setWindowIcon(QIcon(icon_path))
     else:
