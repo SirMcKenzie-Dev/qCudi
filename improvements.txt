@@ -2,7 +2,19 @@ TO DO
 
 Implement better logging that uses ("info", "debug", and "warning") to show different types of levelled information.
 
+Implement a facebook scraper
 
 Implement a method to do highlights
 Implement a method to do reels
+
+Make folder naming conventions better - change from "scraped media" to website type name and generate subfolders within their respective website
+
+E.g
+
+Instagram/profile1
+Instagram/profile2
+Fapello/profile1
+...
+
+change config file not found error from warning to info
 
