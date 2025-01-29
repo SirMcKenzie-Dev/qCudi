@@ -196,4 +196,4 @@ class ScraperController:
 
             self.end_time = time.time()
             duration = self.end_time - self.start_time
-            logger.info("Total execution time: %.2f seconds", duration)
+            logger.info(f"Total execution time: {int(duration // 60)} min {int(duration % 60)} secs")
