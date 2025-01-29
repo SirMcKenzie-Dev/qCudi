@@ -16,7 +16,6 @@ configure_logging('INFO')
 
 
 class ScraperThread(QThread):
-    """Modified ScraperThread with improved progress tracking"""
     progress_signal = pyqtSignal(int, int, str, str)  # current, total, url, status
     completed_signal = pyqtSignal(int, int)  # successful, total
     error_signal = pyqtSignal(str)
@@ -30,16 +29,17 @@ class ScraperThread(QThread):
         self.controller = None
         self.is_cancelled = False
         self.insta_header = InstagramScraper
+        self.total_thumbnails = 0
 
     def progress_callback(self, current, url, status_code, total=None):
         try:
-            if total is not None:
+            if total is not None and total > 0:
                 self.total_thumbnails = total
                 self.total_signal.emit(total)
                 self.status_signal.emit(f"Found {total} media items")
-            else:
-                status_text = "OK" if status_code == 200 else f"Error ({status_code})"
-                self.progress_signal.emit(current, self.total_thumbnails, url, status_text)
+
+            if current > 0:
+                self.progress_signal.emit(current, self.total_thumbnails, url, "OK" if status_code == 200 else f"Error ({status_code})")
                 self.status_signal.emit(f"Processing {current} of {self.total_thumbnails}")
         except Exception as e:
             self.error_signal.emit(f"Progress callback error: {str(e)}")
@@ -52,30 +52,22 @@ class ScraperThread(QThread):
 
     def run(self):
         try:
-            self.controller = ScraperController(
-                progress_callback=self.progress_callback
-            )
-
+            self.controller = ScraperController(progress_callback=self.progress_callback)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-
-            # Run the scraping process
             total_items, successful_downloads = loop.run_until_complete(
                 self.controller.run(self.url)
             )
-
             loop.close()
-
             if not self.is_cancelled:
                 self.completed_signal.emit(successful_downloads, total_items)
-
-        except ValueError as e:  # URL validation error
+        except ValueError as e:
             self.error_signal.emit(f"Invalid URL {str(e)}")
-        except RuntimeError as e:  # Disk space error
+        except RuntimeError as e:
             self.error_signal.emit(f"System error: {str(e)}")
         except WebDriverException as e:
             self.error_signal.emit(f"Scraping error: {str(e)}")
-        except Exception as e:  # Other error
+        except Exception as e:
             self.error_signal.emit(f"Unknown error: {str(e)}")
         finally:
             self.status_signal.emit("Process completed")
@@ -110,6 +102,7 @@ class WebScraperApp(QMainWindow):
 
         # Progress Bar (Row 2)
         self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         grid_layout.addWidget(self.progress_bar, 2, 0, 1, 2)  # Row 2 | Col 0 | Spans 1 row | Spans 2 columns
 
@@ -139,8 +132,10 @@ class WebScraperApp(QMainWindow):
         self.log_text_area.setReadOnly(True)
         grid_layout.addWidget(self.log_text_area, 6, 0, 1, 2)  # Row 6 | Col 0 | Spans 1 row | Spans 2 columns
 
+        # Cleanup
+        self.destroyed.connect(self.cleanup)
+
     def submit_url(self):
-        """Modified to handle multiple website types"""
         url = self.url_input.text()
         website_type = self.dropdown.currentText()
 
@@ -148,7 +143,6 @@ class WebScraperApp(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Please enter a valid URL!")
             return
 
-        # URL validation
         try:
             result = urlparse(url)
             if not all([result.scheme, result.netloc]):
@@ -158,22 +152,25 @@ class WebScraperApp(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Invalid URL format!")
             return
 
-        # Reset UI elements
         self.progress_bar.setValue(0)
+        self.progress_bar.setRange(0, 100)
         self.status_label.setText("Initializing...")
         self.log_text_area.clear()
         self.submit_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
-        # Create and start scraper thread
         self.scraper_thread = ScraperThread(url, website_type)
-        # ... (connect signals) ...
-        self.scraper_thread.error_signal.connect(self.display_error)
-        self.scraper_thread.status_signal.connect(self.update_status)  # Connect status signal
         self.scraper_thread.progress_signal.connect(self.update_progress)
         self.scraper_thread.total_signal.connect(self.initialize_progress)
+        self.scraper_thread.status_signal.connect(self.update_status)
+        self.scraper_thread.error_signal.connect(self.display_error)
         self.scraper_thread.completed_signal.connect(self.download_complete)
+        self.scraper_thread.finished.connect(lambda: self.cancel_button.setEnabled(False))
         self.scraper_thread.start()
+
+    def closeEvent(self, event):
+        self.cleanup()
+        super().closeEvent(event)
 
     def cancel_operation(self):
         if hasattr(self, 'scraper_thread') and self.scraper_thread.isRunning():
@@ -182,26 +179,35 @@ class WebScraperApp(QMainWindow):
             self.status_label.setText("Cancelling...")
 
     def initialize_progress(self, total):
-        """Initialize progress tracking with total count"""
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.total_thumbnails = total
         self.status_label.setText(f"Found {total} media items")
 
     def update_progress(self, current_progress, total_progress, url, status):
-        """Update progress with current/total count"""
         try:
-            percentage = int((current_progress / total_progress) * 100)
-            self.progress_bar.setValue(percentage)
-            self.status_label.setText(f"Processing {current_progress} of {total_progress}")
-            self.log_text_area.append(f"Item {current_progress}/{total_progress}: {url} - {status}")
-            self.log_text_area.verticalScrollBar().setValue(
-                self.log_text_area.verticalScrollBar().maximum()
-            )
+            if total_progress > 0:
+                self.progress_bar.setValue((current_progress * 100) // total_progress)
+                self.status_label.setText(f"Processing {current_progress} of {total_progress}")
+                self.log_text_area.append(f"Item {current_progress}/{total_progress} - {status}")
+                scrollbar = self.log_text_area.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
         except Exception as e:
             self.display_error(f"Error updating progress: {str(e)}")
 
     def update_status(self, message):
         self.status_label.setText(message)
+
+    def cleanup(self):
+        if hasattr(self, 'scraper_thread') and self.scraper_thread.isRunning():
+            self.scraper_thread.cancel()
+            self.scraper_thread.wait()
+
+    def display_error(self, error_message):
+        self.status_label.setText("Error occurred!")
+        self.submit_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
+        QMessageBox.critical(self, "Error", f"An error occurred: {error_message}")
 
     def download_complete(self, successful_downloads, total_thumbnails):
         self.status_label.setText("Download complete!")
@@ -218,12 +224,6 @@ class WebScraperApp(QMainWindow):
             self.display_error(f"Error calculating success rate: Division by zero | {str(e)}")
         except Exception as e:
             self.display_error(f"Error displaying success message: {str(e)}")
-
-    def display_error(self, error_message):
-        self.status_label.setText("Error occurred!")
-        self.submit_button.setEnabled(True)
-        self.cancel_button.setEnabled(False)
-        QMessageBox.critical(self, "Error", f"An error occurred: {error_message}")
 
 
 if __name__ == "__main__":

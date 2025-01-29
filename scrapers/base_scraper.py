@@ -34,8 +34,11 @@ class BaseScraper(ABC):
 
     @abstractmethod
     async def get_media_elements(self) -> list:
-        """Get all media elements from the page"""
-        pass
+        elements = await self._get_elements()
+        self.total_thumbnails = len(elements)
+        if self.progress_callback:
+            self.progress_callback(0, "", 0, self.total_thumbnails)
+        return elements
 
     @abstractmethod
     async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:

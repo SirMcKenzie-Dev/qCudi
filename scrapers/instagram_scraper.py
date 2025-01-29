@@ -243,56 +243,39 @@ class InstagramScraper(BaseScraper):
             return []
 
     async def detect_media_type(self, element) -> tuple[str, str]:
-        """
-        Detects the type of Instagram media (single, carousel, reel).
-
-        Returns:
-            tuple[str, str]: (media_type, post_url)
-            media_type can be 'single', 'carousel', 'reel', or 'unknown'
-        """
         try:
-            # First find the post link from the thumbnail
             post_link = element
             if element.tag_name == 'img':
                 post_link = element.find_element(By.XPATH, './ancestor::a[@role="link"]')
 
             post_url = post_link.get_attribute('href')
 
-            # Check URL patterns
-            if '/reel/' in post_url:
+            # Check for video/reel elements
+            video_elements = element.find_elements(
+                By.CSS_SELECTOR,
+                'video[type="video/mp4"],div[role="button"][aria-label*="play"], span[aria-label*="Video"]')
+
+            if video_elements or '/reel/' in post_url:
+                logger.info(f"Detected reel/video content: {post_url}")
                 return 'reel', post_url
 
-            # Open post in new tab to check type
+            # Open post to check type
             self.driver.execute_script(f"window.open('{post_url}', '_blank');")
             await asyncio.sleep(2)
 
-            # Switch to new tab
             new_window = self.driver.window_handles[-1]
             self.driver.switch_to.window(new_window)
 
             try:
-                # Check for carousel indicators
                 carousel_dots = self.driver.find_elements(
                     By.CSS_SELECTOR,
                     'div[role="menuitem"], button[aria-label="Next"]'
                 )
 
-                # Check for video indicators
-                video_elements = self.driver.find_elements(
-                    By.CSS_SELECTOR,
-                    'video[type="video/mp4"], div[role="button"][aria-label*="play"]'
-                )
-
-                media_type = 'single'
-                if carousel_dots:
-                    media_type = 'carousel'
-                elif video_elements:
-                    media_type = 'reel'
-
+                media_type = 'carousel' if carousel_dots else 'single'
                 return media_type, post_url
 
             finally:
-                # Close tab and switch back
                 self.driver.close()
                 self.driver.switch_to.window(self.driver.window_handles[0])
 
@@ -301,61 +284,65 @@ class InstagramScraper(BaseScraper):
             return 'unknown', ''
 
     async def process_carousel(self, post_url: str, index: int, download_dir: str) -> tuple[bool, list[str]]:
-        """
-        Process a carousel post and download all images.
-        """
+        downloaded_urls = set()
         try:
-            # Open post in new tab
             self.driver.execute_script(f"window.open('{post_url}', '_blank');")
             await asyncio.sleep(2)
 
             new_window = self.driver.window_handles[-1]
             self.driver.switch_to.window(new_window)
 
-            downloaded_urls = []
-            current_index = 0
-
             while True:
                 try:
-                    # Wait for image to load
+                    await asyncio.sleep(2)  # Wait for content load
+
                     img_element = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((
                             By.CSS_SELECTOR,
-                            'div._aagv img[src*="instagram"]'
+                            'div._aagv img[src*="instagram"], article img[src*="instagram"]'
                         ))
                     )
 
                     img_url = img_element.get_attribute('src')
-                    if img_url:
-                        filename = f"instagram_{index}_{current_index}.jpg"
+                    if img_url and img_url not in downloaded_urls:
+                        filename = f"instagram_{index}_{len(downloaded_urls)}.jpg"
                         if await self.download_image(img_url, filename, download_dir):
-                            downloaded_urls.append(img_url)
+                            downloaded_urls.add(img_url)
+                            if self.progress_callback:
+                                self.progress_callback(index + len(downloaded_urls), img_url, 200, self.total_thumbnails)
 
-                    # Try to click next
-                    next_button = self.driver.find_element(
-                        By.CSS_SELECTOR,
-                        'button[aria-label="Next"]'
-                    )
-                    if not next_button.is_displayed():
-                        break
+                    try:
+                        next_button = WebDriverWait(self.driver, 5).until(
+                            EC.element_to_be_clickable((
+                                By.CSS_SELECTOR,
+                                'button[aria-label="Next"]'
+                            ))
+                        )
 
-                    next_button.click()
-                    await asyncio.sleep(1)
-                    current_index += 1
+                        if not next_button.is_displayed():
+                            break
+
+                        next_button.click()
+                        await asyncio.sleep(2)  # Wait for next image load
+                    except Exception:
+                        break  # No more images in carousel
 
                 except Exception as e:
-                    logger.debug(f"Reached end of carousel or error: {str(e)}")
+                    logger.debug(f"Carousel navigation completed or error: {str(e)}")
                     break
 
-            return bool(downloaded_urls), downloaded_urls
+            return bool(downloaded_urls), list(downloaded_urls)
 
         except Exception as e:
             logger.error(f"Error processing carousel: {str(e)}")
             return False, []
 
         finally:
-            self.driver.close()
-            self.driver.switch_to.window(self.driver.window_handles[0])
+            try:
+                self.driver.close()
+                self.driver.switch_to.window(self.driver.window_handles[0])
+            except Exception as e:
+                logger.error(f"Error cleaning up carousel windows: {str(e)}")
 
     async def process_single_image(self, post_url: str, index: int, download_dir: str) -> tuple[bool, str]:
         """
@@ -393,9 +380,6 @@ class InstagramScraper(BaseScraper):
             return False, ''
 
     async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:
-        """
-        Enhanced media element processing with type detection.
-        """
         try:
             media_type, post_url = await self.detect_media_type(element)
 
@@ -407,18 +391,20 @@ class InstagramScraper(BaseScraper):
 
             elif media_type == 'carousel':
                 success, urls = await self.process_carousel(post_url, index, download_dir)
-                if success and self.progress_callback:
-                    self.progress_callback(index + 1, urls[0], 200, self.total_thumbnails)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, urls[0] if urls else post_url, 200 if success else 500, self.total_thumbnails)
                 return success, urls[0] if urls else ""
 
             elif media_type == 'single':
                 success, url = await self.process_single_image(post_url, index, download_dir)
-                if success and self.progress_callback:
-                    self.progress_callback(index + 1, url, 200, self.total_thumbnails)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, url if success else post_url, 200 if success else 500, self.total_thumbnails)
                 return success, url
 
             else:
                 logger.warning(f"Unknown media type for post: {post_url}")
+                if self.progress_callback:
+                    self.progress_callback(index + 1, post_url, 500, self.total_thumbnails)
                 return False, "Unknown media type"
 
         except Exception as e:
