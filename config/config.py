@@ -71,8 +71,8 @@ class ScraperConfig:
 
             # Load credentials from environment if not in file
             if not default_config.get("credentials", {}).get("instagram.com"):
-                username = os.getenv("INSTAGRAM_USERNAME")
-                password = os.getenv("INSTAGRAM_PASSWORD")
+                username = os.getenv("INSTAGRAM_USERNAME_HIDDEN")
+                password = os.getenv("INSTAGRAM_PASSWORD_HIDDEN")
                 if username and password:
                     logger.debug("Loading Instagram credentials from environment")
                     if "credentials" not in default_config:
