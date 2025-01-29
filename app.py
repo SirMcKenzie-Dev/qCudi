@@ -37,9 +37,9 @@ class ScraperThread(QThread):
                 self.total_thumbnails = total
                 self.total_signal.emit(total)
                 self.status_signal.emit(f"Found {total} media items")
-            elif current > 0 and self.total_thumbnails > 0:
-                percentage = min(100, int((current / self.total_thumbnails) * 100))
-                self.progress_signal.emit(percentage, self.total_thumbnails, url, "OK" if status_code == 200 else f"Error ({status_code})")
+
+            if current > 0:
+                self.progress_signal.emit(current, self.total_thumbnails, url, "OK" if status_code == 200 else f"Error ({status_code})")
                 self.status_signal.emit(f"Processing {current} of {self.total_thumbnails}")
         except Exception as e:
             self.error_signal.emit(f"Progress callback error: {str(e)}")
@@ -187,13 +187,11 @@ class WebScraperApp(QMainWindow):
     def update_progress(self, current_progress, total_progress, url, status):
         try:
             if total_progress > 0:
-                percentage = min(100, int((current_progress / total_progress) * 100))
-                self.progress_bar.setValue(percentage)
+                self.progress_bar.setValue((current_progress * 100) // total_progress)
                 self.status_label.setText(f"Processing {current_progress} of {total_progress}")
-                self.log_text_area.append(f"Item {current_progress}/{total_progress}: {url} - {status}")
-                self.log_text_area.verticalScrollBar().setValue(
-                    self.log_text_area.verticalScrollBar().maximum()
-                )
+                self.log_text_area.append(f"Item {current_progress}/{total_progress} - {status}")
+                scrollbar = self.log_text_area.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
         except Exception as e:
             self.display_error(f"Error updating progress: {str(e)}")
 

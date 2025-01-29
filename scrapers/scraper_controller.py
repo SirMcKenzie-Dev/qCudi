@@ -84,6 +84,22 @@ class ScraperController:
             logger.error("Error getting credentials: %s", str(e))
             return {}
 
+    def get_profile_name(self, url: str) -> str:
+        try:
+            # Extract profile name from URL
+            parts = url.strip('/').split('/')
+            if 'instagram.com' in url:
+                # Instagram URLs: instagram.com/username
+                idx = parts.index('instagram.com')
+                return parts[idx + 1] if len(parts) > idx + 1 else 'unknown'
+            elif 'fapello.com' in url:
+                # Fapello URLs: fapello.com/username
+                idx = parts.index('fapello.com')
+                return parts[idx + 1] if len(parts) > idx + 1 else 'unknown'
+            return 'unknown'
+        except (ValueError, IndexError):
+            return 'unknown'
+
     async def run(self, url: str) -> tuple[int, int]:
         """Main method to run the scraping process."""
         try:
@@ -92,9 +108,18 @@ class ScraperController:
             if not scraper_class:
                 raise ValueError(f"Unsupported website. Supported: {', '.join(self.SCRAPER_MAP.keys())}")
 
-            # Create download directory
-            os.makedirs(self.config.download_directory, exist_ok=True)
-            logger.debug("Download directory created: %s", self.config.download_directory)
+            # Get profile name and create specific directory
+            profile_name = self.get_profile_name(url)
+            website_type = next((domain.split('.')[0] for domain in self.SCRAPER_MAP.keys()
+                                if domain in url.lower()), 'unknown')
+
+            # Create website-specific directory structure
+            base_dir = os.path.join(self.config.download_directory, website_type)
+            profile_dir = os.path.join(base_dir, profile_name)
+            os.makedirs(profile_dir, exist_ok=True)
+
+            # Update download directory to profile-specific path
+            self.config.download_directory = profile_dir
 
             # Check disk space
             await self.check_disk_space()

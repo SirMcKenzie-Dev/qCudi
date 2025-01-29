@@ -100,22 +100,20 @@ class FapelloScraper(BaseScraper):
 
     async def process_media_element(self, thumbnail, index: int, download_dir: str) -> tuple[bool, str]:
         try:
-            # Store main window handle if not already stored
             if not self.main_window:
                 self.main_window = self.driver.current_window_handle
 
-            # Get the intermediate page URL
             parent = thumbnail.find_element(By.XPATH, "./ancestor::a")
             intermediate_url = parent.get_attribute('href')
             if not intermediate_url:
+                if self.progress_callback:
+                    self.progress_callback(index + 1, "", 404, self.total_thumbnails)
                 logging.warning(f"No link for thumbnail {index}")
                 return False, "No link found"
 
-            # Open intermediate page in a new tab
             self.driver.execute_script(f"window.open('{intermediate_url}', '_blank');")
-            await asyncio.sleep(1)  # Give browser time to open new window
+            await asyncio.sleep(1)
 
-            # Switch to the new window
             new_window = None
             for handle in self.driver.window_handles:
                 if handle != self.main_window:
@@ -123,11 +121,12 @@ class FapelloScraper(BaseScraper):
                     break
 
             if not new_window:
+                if self.progress_callback:
+                    self.progress_callback(index + 1, "", 500, self.total_thumbnails)
                 return False, "Could not open new window"
 
             self.driver.switch_to.window(new_window)
 
-            # Wait for images to load
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_all_elements_located((By.TAG_NAME, "img"))
             )
@@ -162,28 +161,27 @@ class FapelloScraper(BaseScraper):
                     continue
 
             if not largest_image:
-                # Make sure we switch back to main window before closing current window
                 current_handle = self.driver.current_window_handle
                 self.driver.switch_to.window(current_handle)
                 self.driver.close()
                 self.driver.switch_to.window(self.main_window)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, "", 404, self.total_thumbnails)
                 return False, "No suitable image found"
 
-            # Get the URL of the largest image
             full_res_url = largest_image.get_attribute('src')
             if not full_res_url:
-                # Make sure we switch back to main window before closing current window
                 current_handle = self.driver.current_window_handle
                 self.driver.switch_to.window(current_handle)
                 self.driver.close()
                 self.driver.switch_to.window(self.main_window)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, "", 404, self.total_thumbnails)
                 return False, "No source URL found"
 
-            # Download the full-resolution image
             filename = f"image_{index + 1}{os.path.splitext(full_res_url.split('?')[0])[1]}"
             success = await self.download_image(full_res_url, filename, download_dir)
 
-            # Properly close the current window and switch back
             current_handle = self.driver.current_window_handle
             self.driver.switch_to.window(current_handle)
             self.driver.close()
@@ -195,16 +193,14 @@ class FapelloScraper(BaseScraper):
                 return True, full_res_url
             else:
                 if self.progress_callback:
-                    self.progress_callback(index + 1, full_res_url, 500)
+                    self.progress_callback(index + 1, full_res_url, 500, self.total_thumbnails)
                 return False, "Download failed"
 
         except Exception as e:
             logging.error(f"Error processing thumbnail {index}: {e}")
-            # Emergency cleanup - make sure we get back to main window
             try:
                 if self.main_window and self.main_window in self.driver.window_handles:
                     self.driver.switch_to.window(self.main_window)
-                # Close any extra windows
                 original_handle = self.driver.current_window_handle
                 for handle in self.driver.window_handles:
                     if handle != original_handle:
@@ -213,4 +209,7 @@ class FapelloScraper(BaseScraper):
                 self.driver.switch_to.window(original_handle)
             except Exception as cleanup_error:
                 logging.error(f"Error during cleanup: {cleanup_error}")
+
+            if self.progress_callback:
+                self.progress_callback(index + 1, "", 500, self.total_thumbnails)
             return False, str(e)

@@ -393,9 +393,6 @@ class InstagramScraper(BaseScraper):
             return False, ''
 
     async def process_media_element(self, element, index: int, download_dir: str) -> tuple[bool, str]:
-        """
-        Enhanced media element processing with type detection.
-        """
         try:
             media_type, post_url = await self.detect_media_type(element)
 
@@ -407,18 +404,20 @@ class InstagramScraper(BaseScraper):
 
             elif media_type == 'carousel':
                 success, urls = await self.process_carousel(post_url, index, download_dir)
-                if success and self.progress_callback:
-                    self.progress_callback(index + 1, urls[0], 200, self.total_thumbnails)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, urls[0] if urls else post_url, 200 if success else 500, self.total_thumbnails)
                 return success, urls[0] if urls else ""
 
             elif media_type == 'single':
                 success, url = await self.process_single_image(post_url, index, download_dir)
-                if success and self.progress_callback:
-                    self.progress_callback(index + 1, url, 200, self.total_thumbnails)
+                if self.progress_callback:
+                    self.progress_callback(index + 1, url if success else post_url, 200 if success else 500, self.total_thumbnails)
                 return success, url
 
             else:
                 logger.warning(f"Unknown media type for post: {post_url}")
+                if self.progress_callback:
+                    self.progress_callback(index + 1, post_url, 500, self.total_thumbnails)
                 return False, "Unknown media type"
 
         except Exception as e:
