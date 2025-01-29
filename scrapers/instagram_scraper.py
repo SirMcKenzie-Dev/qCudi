@@ -253,7 +253,7 @@ class InstagramScraper(BaseScraper):
             # Check for video/reel elements
             video_elements = element.find_elements(
                 By.CSS_SELECTOR,
-                'video[type="video/mp4"],div[role="button"][aria-label*="play"], span[aria-label*="Video"]')
+                'video[type="video/mp4"], div[role="button"][aria-label*="play"], span[aria-label*="Video"]')
 
             if video_elements or '/reel/' in post_url:
                 logger.info(f"Detected reel/video content: {post_url}")
