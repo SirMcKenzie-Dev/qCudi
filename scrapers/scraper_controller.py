@@ -70,8 +70,8 @@ class ScraperController:
 
             # Try environment variables
             if domain == "instagram.com":
-                username = os.getenv('INSTAGRAM_USERNAME_HIDDEN')
-                password = os.getenv('INSTAGRAM_PASSWORD_HIDDEN')
+                username = os.getenv('INSTAGRAM_USERNAME')
+                password = os.getenv('INSTAGRAM_PASSWORD')
 
                 if username and password:
                     logger.debug("Found Instagram credentials in environment variables")
